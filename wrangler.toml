@@ -1,3 +1,8 @@
 name = "groq-chatbot"
 main = "index.js"
 compatibility_date = "2026-06-28"
+
+# 💡 HTMLファイルをインポートできるようにするルールを追加
+[[rules]]
+globs = ["**/*.html"]
+type = "Text"
