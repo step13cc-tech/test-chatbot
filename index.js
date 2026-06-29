@@ -72,7 +72,7 @@ export default {
 
         // --- ② 【頭脳変更】Cloudflare内蔵の Workers AI (Qwen) でセリフを生成 ---
         // 💡 env.AI.run を使い、Cloudflareが提供するQwenモデルを直接呼び出します
-        const aiResponse = await env.AI.run('@cf/qwen/qwen1.5-14b-chat-awq', {
+        const aiResponse = await env.AI.run('@cf/qwen/qwen2.5-7b-instruct', {
           messages: [
             {
               role: "system",
