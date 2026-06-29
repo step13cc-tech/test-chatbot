@@ -58,7 +58,10 @@
                 const response = await fetch('/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ 
+  message: text, // 元々のメッセージ（変数名は環境に合わせてください）
+  member: document.getElementById('member-select').value // 💡 選ばれたメンバーを一緒につけて送る！
+})
                 });
                 const data = await response.json();
 
