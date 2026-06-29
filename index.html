@@ -145,38 +145,18 @@
       sendButton.disabled = disabled;
     }
 
-    micButton.addEventListener('click', async () => {
-      aiPlayer.play().then(() => { aiPlayer.pause(); }).catch(e => console.log("Audio Unlocked"));
+    // 初回のみマイクとオーディオ環境をセットアップする関数
+    async function initAudioSystem() {
+      if (audioStream && audioContext) return true; // 既にセットアップ済みの場合はスキップ
 
-      if (!isAutoMode) {
-        isAutoMode = true;
-        micButton.classList.add('recording');
-        micButton.textContent = "🎙️";
-        messageInput.placeholder = "自動会話中... スマホを置いて話しかけてね";
-        setControlsDisabledForText(true);
-        
-        await startAutoConversation();
-      } else {
-        stopAutoConversation();
-      }
-    });
-
-    async function startAutoConversation() {
-      audioChunks = [];
       try {
         audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(audioStream);
         source.connect(analyser);
         analyser.fftSize = 512;
-        
-        if (audioContext.state === 'suspended') {
-          await audioContext.resume();
-        }
 
-        // 💡 【高速化】音質を文字起こしに最適な32kbpsに制限し、アップロードサイズを大幅削減
         const options = MediaRecorder.isTypeSupported('audio/webm') 
           ? { mimeType: 'audio/webm', audioBitsPerSecond: 32000 } 
           : { audioBitsPerSecond: 32000 };
@@ -189,33 +169,61 @@
 
         mediaRecorder.onstop = async () => {
           const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-          
-          if (audioStream) {
-            audioStream.getTracks().forEach(track => track.stop());
-            audioStream = null;
-          }
-          if (audioContext) {
-            await audioContext.close();
-            audioContext = null;
-            analyser = null;
-          }
-
           if (isAutoMode) {
             await sendAudioToServer(audioBlob);
           }
         };
-
-        mediaRecorder.start();
-        
-        hasSpoken = false;
-        silenceStart = Date.now();
-        checkSilence();
-
+        return true;
       } catch (err) {
-        console.error("マイクエラー:", err);
+        console.error("オーディオ初期化エラー:", err);
         alert("マイクの使用を許可してください。");
+        return false;
+      }
+    }
+
+    micButton.addEventListener('click', async () => {
+      aiPlayer.play().then(() => { aiPlayer.pause(); }).catch(e => console.log("Audio Unlocked"));
+
+      if (!isAutoMode) {
+        isAutoMode = true;
+        micButton.classList.add('recording');
+        micButton.textContent = "🎙️";
+        messageInput.placeholder = "自動会話中... スマホを置いて話しかねてね";
+        setControlsDisabledForText(true);
+        
+        // 最初の1回だけマイクを起動
+        const success = await initAudioSystem();
+        if (success) {
+          startListeningLoop();
+        } else {
+          stopAutoConversation();
+        }
+      } else {
         stopAutoConversation();
       }
+    });
+
+    // 🎙️ 録音を「再開」する軽量な関数（ハードウェアの再起動なし）
+    async function startListeningLoop() {
+      if (!isAutoMode || !mediaRecorder) return;
+
+      audioChunks = [];
+      hasSpoken = false;
+      silenceStart = Date.now();
+
+      // マイクのミュートを解除して録音開始
+      if (audioStream) {
+        audioStream.getAudioTracks().forEach(track => track.enabled = true);
+      }
+      if (audioContext && audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
+      if (mediaRecorder.state === "inactive") {
+        mediaRecorder.start();
+      }
+      
+      checkSilence();
     }
 
     function checkSilence() {
@@ -231,8 +239,7 @@
       let average = total / array.length;
 
       const THRESHOLD = 12; 
-      // 💡 【高速化】無音の待ち時間を 1500ms(1.5秒) ➔ 700ms(0.7秒) に短縮！
-      const SILENCE_DURATION = 700; 
+      const SILENCE_DURATION = 700; // 0.7秒
 
       if (average > THRESHOLD) {
         if (!hasSpoken) {
@@ -245,6 +252,10 @@
           hasSpoken = false;
           micButton.textContent = "⏳"; 
           if (mediaRecorder && mediaRecorder.state === "recording") {
+            // AIが喋る間、一時的に自分のマイクをミュートにする（ハウリング防止）
+            if (audioStream) {
+              audioStream.getAudioTracks().forEach(track => track.enabled = false);
+            }
             mediaRecorder.stop(); 
             return; 
           }
@@ -258,13 +269,21 @@
       isAutoMode = false;
       hasSpoken = false;
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      
       if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
       }
+      // モード終了時のみ、完全にマイク資源を解放する
       if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
       }
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+        analyser = null;
+      }
+
       micButton.classList.remove('recording');
       micButton.textContent = "🎙️";
       messageInput.placeholder = "メッセージを入力、またはマイク...";
@@ -296,14 +315,15 @@
           aiPlayer.onended = () => {
             if (isAutoMode) {
               micButton.textContent = "🎙️";
+              // ハードウェアの再起動がないので、わずか0.1秒後にすぐ次の聞き取りへ
               setTimeout(() => {
-                if (isAutoMode) startAutoConversation(); 
-              }, 300); // 💡 次の聞き取り開始のディレイも少し詰めました
+                if (isAutoMode) startListeningLoop(); 
+              }, 100); 
             }
           };
         } else {
           if (isAutoMode) {
-            setTimeout(() => { if (isAutoMode) startAutoConversation(); }, 800);
+            setTimeout(() => { if (isAutoMode) startListeningLoop(); }, 500);
           }
         }
 
