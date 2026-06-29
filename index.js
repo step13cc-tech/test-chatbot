@@ -70,8 +70,8 @@ export default {
         }
 
 
-        // --- ② 【爆速化】Groqの超高速Qwenモデル（32B）でお返事を生成 ---
-        // 💡 既存の GROQ_API_KEY を使い、文章生成もGroqに任せることで速度を10倍以上にします
+        // --- ② 【修正】Groqの最新Qwen3-32Bモデルでお返事を生成 ---
+        // 💡 ご指摘いただいた正確なモデルID「qwen/qwen3-32b」に修正しました
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -79,7 +79,7 @@ export default {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model: "qwen-2.5-32b",
+            model: "qwen/qwen3-32b", 
             messages: [
               {
                 role: "system",
@@ -123,6 +123,12 @@ export default {
             language: "ja"
           })
         });
+
+        if (!cartesiaResponse.ok) {
+          const errText = await cartesiaResponse.text();
+          console.error("Cartesiaエラー詳細:", errText);
+          return new Response(JSON.stringify({ user_text: userMessage, reply }), { headers: { "Content-Type": "application/json" } });
+        }
 
         if (!cartesiaResponse.ok) {
           const errText = await cartesiaResponse.text();
