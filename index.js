@@ -9,10 +9,9 @@ export default {
       });
     }
 
-    // 2. 家族メンバー追加前のシンプルな通信処理 (POST)
+    // 2. 通信処理 (POST)
     if (request.method === "POST") {
       try {
-        // 画面からはメッセージテキストのみを受け取る（家族追加前の構造）
         const { message } = await request.json();
 
         // --- ① Groqでテキスト（セリフ）を生成 ---
@@ -37,40 +36,39 @@ export default {
         const groqData = await groqResponse.json();
         if (!groqResponse.ok) {
           console.error("Groqエラー:", JSON.stringify(groqData));
-          return new Response(JSON.stringify({ error: "Groq API側でエラーが発生しました" }), { status: groqResponse.status });
+          return new Response(JSON.stringify({ error: "Groqエラー" }), { status: 500 });
         }
         
         const reply = groqData.choices[0].message.content;
 
-        // --- ② Cartesiaでテキストを「音声」に変換（最新の正しい書き方） ---
+        // --- ② Cartesiaでテキストを「音声」に変換 ---
         const cartesiaResponse = await fetch("https://api.cartesia.ai/tts/bytes", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${env.CARTESIA_API_KEY}`, // X-API-KeyからBearer認証に変更
-            "Cartesia-Version": "2024-06-10",                  // 必須ヘッダー
+            "X-API-Key": env.CARTESIA_API_KEY, // 💡 修正①：Bearerから元の「X-API-Key」の書き方に戻しました
+            "Cartesia-Version": "2024-06-10",
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model_id: "sonic",        // 多言語対応の標準モデル
-            transcript: reply,        // 「text」ではなく「transcript」
+            model_id: "sonic",
+            transcript: reply,
             voice: {
               mode: "id",
-              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // お母さん用の日本語ボイスID（適宜変更してください）
+              id: "a0e998ae-05cd-40a1-ad14-ca0ae87b1ef7" // ※ご自身のボイスIDが入っているかご確認ください
             },
             output_format: {
               container: "wav",
-              encoding: "pcm_f32le",
+              encoding: "pcm_s16le", // 💡 修正②：ブラウザが最も再生しやすい「16bit (s16le)」に変更しました
               sample_rate: 44100
             },
-            language: "ja"            // 日本語を綺麗に発音させるための指定
+            language: "ja"
           })
         });
 
-        // Cartesia側でエラーが起きた場合は原因をログに残す
+        // エラーが起きた場合はログに出力
         if (!cartesiaResponse.ok) {
           const errText = await cartesiaResponse.text();
-          console.error("Cartesiaエラー内容:", errText);
-          // 音声が失敗しても文字だけは表示できるようにフォールバック
+          console.error("Cartesiaエラー詳細:", errText); // 👈 失敗時、ここにエラー内容が出ます
           return new Response(JSON.stringify({ reply }), { headers: { "Content-Type": "application/json" } });
         }
 
@@ -85,10 +83,7 @@ export default {
 
       } catch (error) {
         console.error("Workers内部エラー:", error.message);
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" }
-        });
+        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
       }
     }
   }
