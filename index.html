@@ -18,24 +18,6 @@
 </head>
 <body>
     <h2>Groq AI チャットボット</h2>
-
-<div style="margin-bottom: 10px;">
-  <label for="member-select" style="font-size: 14px; font-weight: bold; color: #333;">誰と話す？：</label>
-  <select id="member-select" style="padding: 5px 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px;">
-    <option value="grandfather">おじいちゃん</option>
-    <option value="grandmother">おばあちゃん</option>
-    <option value="father">お父さん</option>
-    <option value="mother" selected>お母さん</option>
-    <option value="brother">兄</option>
-    <option value="sister">姉</option>
-    <option value="younger_brother">弟</option>
-    <option value="younger_sister">妹</option>
-    <option value="son">息子</option>
-    <option value="daughter">娘</option>
-    <option value="baby">赤子（赤ちゃん）</option>
-  </select>
-</div>
-    
     <div id="chat"></div>
     <div id="input-area">
         <input type="text" id="message" placeholder="メッセージを入力..." onkeypress="if(event.key==='Enter') sendMessage()">
@@ -60,7 +42,6 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
   message: text, // 元々のメッセージ（変数名は環境に合わせてください）
-  member: document.getElementById('member-select').value // 💡 選ばれたメンバーを一緒につけて送る！
 })
                 });
                 const data = await response.json();
