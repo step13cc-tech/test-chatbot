@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>家族チャットボット (自動ハンズフリー)</title>
+  <title>家族チャットボット (ハンズフリーiPhone対応)</title>
   <style>
     * {
       box-sizing: border-box;
@@ -78,7 +78,6 @@
       width: 40px;
       font-size: 18px;
     }
-    /* 連打や録音中のアニメーション */
     #mic-button.recording {
       background-color: #ff4d4d;
       color: white;
@@ -122,7 +121,6 @@
     let mediaRecorder = null;
     let audioChunks = [];
     
-    // 💡 自動会話用の一元管理フラグと変数
     let isAutoMode = false; 
     let audioStream = null;
     let audioContext = null;
@@ -145,19 +143,17 @@
       sendButton.disabled = disabled;
     }
 
-    // --- 🎙️ マイクボタンを押したときの処理（自動モードのON/OFF切り替え） ---
+    // マイクボタンを押したときの処理
     micButton.addEventListener('click', async () => {
       if (!isAutoMode) {
-        // 【ONにする】
         isAutoMode = true;
         micButton.classList.add('recording');
         micButton.textContent = "🎙️";
         messageInput.placeholder = "自動会話中... スマホを置いて話しかけてね";
-        setControlsDisabledForText(true); // キーボード入力をロック
+        setControlsDisabledForText(true);
         
         await startAutoConversation();
       } else {
-        // 【OFFにする（終了）】
         stopAutoConversation();
       }
     });
@@ -166,19 +162,15 @@
     async function startAutoConversation() {
       audioChunks = [];
       try {
-        // 最初の一回だけマイクのストリーム（許可）を取得して使い回す
-        if (!audioStream) {
-          audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        }
+        // 💡 修正①：iPhone対策として、毎回新鮮なマイクストリームを取得する
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
-        // 音声をリアルタイム分析するWeb Audio APIの準備
-        if (!audioContext) {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          analyser = audioContext.createAnalyser();
-          const source = audioContext.createMediaStreamSource(audioStream);
-          source.connect(analyser);
-          analyser.fftSize = 512;
-        }
+        // 音声をリアルタイム分析するWeb Audio API（毎回新しく生成）
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(audioStream);
+        source.connect(analyser);
+        analyser.fftSize = 512;
         
         if (audioContext.state === 'suspended') {
           await audioContext.resume();
@@ -193,7 +185,18 @@
 
         mediaRecorder.onstop = async () => {
           const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-          // ボタンが手動でOFFにされていなければサーバーへ送信
+          
+          // 💡 修正②：【最重要】AIが喋る前に、開いているマイクとオーディオ機能を完全に閉じてスピーカーを解放する
+          if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+          }
+          if (audioContext) {
+            await audioContext.close();
+            audioContext = null;
+            analyser = null;
+          }
+
           if (isAutoMode) {
             await sendAudioToServer(audioBlob);
           }
@@ -201,7 +204,6 @@
 
         mediaRecorder.start();
         
-        // 変数を初期化して無音検知ループをスタート
         hasSpoken = false;
         silenceStart = Date.now();
         checkSilence();
@@ -220,48 +222,47 @@
       const array = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(array);
       
-      // 今の平均音量を計算
       let total = 0;
       for (let i = 0; i < array.length; i++) {
         total += array[i];
       }
       let average = total / array.length;
 
-      // 💡 感度調整（環境の雑音に合わせて10〜15の間で微調整してください）
       const THRESHOLD = 12; 
-      const SILENCE_DURATION = 1500; // 1500ミリ秒（1.5秒）無音が続いたら送信
+      const SILENCE_DURATION = 1500; // 1.5秒
 
       if (average > THRESHOLD) {
-        // 声を検知している状態
         if (!hasSpoken) {
           hasSpoken = true;
-          micButton.textContent = "🔴"; // 「喋り中」のサイン
+          micButton.textContent = "🔴"; // 喋り中
         }
-        silenceStart = Date.now(); // 音を検知するたびに無音タイマーをリセット
+        silenceStart = Date.now(); 
       } else {
-        // 静かな状態
         if (hasSpoken && (Date.now() - silenceStart > SILENCE_DURATION)) {
-          // 「喋った後に、1.5秒間静かになった」＝ 話し終わり！
           hasSpoken = false;
-          micButton.textContent = "⏳"; // 「考え中」のサイン
+          micButton.textContent = "⏳"; // 考え中
           if (mediaRecorder && mediaRecorder.state === "recording") {
-            mediaRecorder.stop(); // 録音を止めると自動的に送信が走ります
+            mediaRecorder.stop(); // 💡 これを呼ぶと自動的にマイクがオフになり送信されます
             return; 
           }
         }
       }
 
-      // 次のフレームも監視を続ける
       animationFrameId = requestAnimationFrame(checkSilence);
     }
 
-    // 🛑 自動会話モードを安全にストップさせる関数
+    // 自動会話モードをストップさせる関数
     function stopAutoConversation() {
       isAutoMode = false;
       hasSpoken = false;
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
+      }
+      // マイクが開いていたら確実に止める
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
       }
       micButton.classList.remove('recording');
       micButton.textContent = "🎙️";
@@ -288,22 +289,20 @@
           const audioUrl = `data:audio/wav;base64,${data.audio}`;
           const audio = new Audio(audioUrl);
           
-          if (isAutoMode) micButton.textContent = "🔊"; // 「AIお喋り中」のサイン
+          if (isAutoMode) micButton.textContent = "🔊"; // AIお喋り中
 
           audio.play().catch(err => console.error("自動再生ブロック:", err));
           
-          // 💡 ここが魔法のバトンタッチ！AIが喋り終わったら自動で次の聞き取りを開始
+          // AIが喋り終わったら自動で次の聞き取りを再開
           audio.onended = () => {
             if (isAutoMode) {
-              micButton.textContent = "🎙️"; // 「聞き取り待ち」に戻す
-              // スピーカーの残響音をマイクが拾わないよう、400msだけ待ってから優しく再開
+              micButton.textContent = "🎙️";
               setTimeout(() => {
-                if (isAutoMode) startAutoConversation();
+                if (isAutoMode) startAutoConversation(); // 💡 ここでマイクが新しくONになります
               }, 400);
             }
           };
         } else {
-          // もし音声データがなかったら1秒後に再開
           if (isAutoMode) {
             setTimeout(() => { if (isAutoMode) startAutoConversation(); }, 1000);
           }
@@ -311,12 +310,12 @@
 
       } catch (error) {
         console.error(error);
-        addMessage("ごめんね、うまく聞き取れなかったか、お返事できなかったよ…", false);
-        stopAutoConversation(); // エラー時は安全のために一度自動モードを解除します
+        addMessage("ごめんね、うまくお返事できなかったよ…", false);
+        stopAutoConversation();
       }
     }
 
-    // --- 従来のテキスト送信処理（そのまま残してあるのでキーボードも使えます） ---
+    // 従来のテキスト送信処理
     async function sendMessage() {
       const text = messageInput.value.trim();
       if (!text) return;
