@@ -1,5 +1,18 @@
 import htmlContent from "./index.html";
 
+// 💡 対策：大きな音声データでもパンク（Maximum call stack size）しないように小分けにして変換する関数
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  const chunkSize = 65536; // 64KBずつに細かく分けて安全に処理します
+  for (let i = 0; i < len; i += chunkSize) {
+    const subArray = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, subArray);
+  }
+  return btoa(binary);
+}
+
 export default {
   async fetch(request, env) {
     // 1. チャット画面（HTML）を表示する処理 (GET)
@@ -50,11 +63,11 @@ export default {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model_id: "sonic-latest", // 💡 修正①：引退した「sonic」から最新の「sonic-latest」に変更
+            model_id: "sonic-latest",
             transcript: reply,
             voice: {
               mode: "id",
-              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // 💡 修正②：新しいボイスIDを挿入しました
+              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // ご指定のボイスIDを挿入しています
             },
             output_format: {
               container: "wav",
@@ -65,16 +78,17 @@ export default {
           })
         });
 
-        // エラーが起きた場合はログに出力
         if (!cartesiaResponse.ok) {
           const errText = await cartesiaResponse.text();
           console.error("Cartesiaエラー詳細:", errText);
           return new Response(JSON.stringify({ reply }), { headers: { "Content-Type": "application/json" } });
         }
 
-        // 音声のバイナリデータを取得し、Base64文字列に変換
+        // 音声のバイナリデータを取得
         const audioBuffer = await cartesiaResponse.arrayBuffer();
-        const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
+        
+        // 💡 修正：パンクする原因だった古い書き方をやめ、上記の安全な関数（小分け処理）を使うように変更
+        const audioBase64 = arrayBufferToBase64(audioBuffer);
 
         // --- ③ テキストと音声（Base64）をセットにして画面に返す ---
         return new Response(JSON.stringify({ reply, audio: audioBase64 }), {
