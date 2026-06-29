@@ -32,17 +32,17 @@ export default {
         // 💡 家族ごとの「声（Cartesia Voice ID）」の設定リスト
         // ※Cartesiaの「Voice Library」から日本語（Multilingual）対応の好きな声のIDをコピーして、ここに当てはめてください
         const familyVoices = {
-          grandfather: "おじいちゃんの声のID",
-          grandmother: "おばあちゃんの声のID",
-          father: "お父さんの声のID",
-          mother: "a0e998ae-05cd-40a1-ad14-ca0ae87b1ef7", // 例: 日本語が喋れる女性の声
-          brother: "兄の声のID",
-          sister: "姉の声のID",
-          younger_brother: "弟の声のID",
-          younger_sister: "妹の声のID",
-          son: "息子の声のID",
-          daughter: "娘の声のID",
-          baby: "赤ちゃんの声のID"
+          grandfather: "1d210168-d764-462c-8ab6-288a6d5a9579",
+          grandmother: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e",
+          father: "1d210168-d764-462c-8ab6-288a6d5a9579",
+          mother: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e", // 例: 日本語が喋れる女性の声
+          brother: "1d210168-d764-462c-8ab6-288a6d5a9579",
+          sister: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e",
+          younger_brother: "1d210168-d764-462c-8ab6-288a6d5a9579",
+          younger_sister: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e",
+          son: "1d210168-d764-462c-8ab6-288a6d5a9579",
+          daughter: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e",
+          baby: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e"
         };
 
         const selectedSystemPrompt = familyPrompts[member] || familyPrompts['mother'];
