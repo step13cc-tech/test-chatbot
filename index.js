@@ -22,7 +22,10 @@ export default {
           },
           body: JSON.stringify({
             model: "llama-3.1-8b-instant", // 💡 2026年現在、安定して動く新しいモデルに変更
-            messages: [{ role: "user", content: message }]
+            messages: [
+              { role: "system", content: "あなたはuserの友だちです。" }, // 💡 ここを追加！
+              { role: "user", content: message }
+            ]
           })
         });
 
