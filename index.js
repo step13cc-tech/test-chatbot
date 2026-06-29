@@ -1,6 +1,5 @@
 import htmlContent from "./index.html";
 
-// 大きな音声データでもパンクしないように小分けにして安全にBase64に変換する関数
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -15,20 +14,19 @@ function arrayBufferToBase64(buffer) {
 
 export default {
   async fetch(request, env) {
-    // 1. チャット画面（HTML）を表示する処理 (GET)
     if (request.method === "GET") {
       return new Response(htmlContent, {
         headers: { "Content-Type": "text/html;charset=UTF-8" },
       });
     }
 
-    // 2. 通信処理 (POST)
     if (request.method === "POST") {
+      // ⏱️ 全体の計測開始
+      const startTotal = Date.now();
       try {
         let userMessage = "";
         const contentType = request.headers.get("content-type") || "";
 
-        // --- ① 送られてきたデータが「音声ファイル」か「文字」かを判別 ---
         if (contentType.includes("multipart/form-data")) {
           const formData = await request.formData();
           const audioFile = formData.get("file");
@@ -37,7 +35,8 @@ export default {
             return new Response(JSON.stringify({ error: "音声ファイルが見つかりません" }), { status: 400 });
           }
 
-          // 🎙️ Whisper (文字起こし)
+          // 🎙️ Whisper (文字起こし) 開始
+          const startWhisper = Date.now();
           const whisperFormData = new FormData();
           whisperFormData.append("file", audioFile, "audio.webm");
           whisperFormData.append("model", "whisper-large-v3-turbo"); 
@@ -45,9 +44,7 @@ export default {
 
           const whisperResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${env.GROQ_API_KEY}`
-            },
+            headers: { "Authorization": `Bearer ${env.GROQ_API_KEY}` },
             body: whisperFormData
           });
 
@@ -59,6 +56,7 @@ export default {
 
           const whisperData = await whisperResponse.json();
           userMessage = whisperData.text; 
+          console.log(`【1. 文字起こし完了】所要時間: ${Date.now() - startWhisper}ms | 聞き取った文字: "${userMessage}"`);
 
         } else {
           const body = await request.json();
@@ -70,8 +68,8 @@ export default {
         }
 
 
-        // --- ② 【修正】Groqの最新Qwen3-32Bモデルでお返事を生成 ---
-        // 💡 ご指摘いただいた正確なモデルID「qwen/qwen3-32b」に修正しました
+        // 🧠 Groq (Qwen3-32B) でお返事生成 開始
+        const startLLM = Date.now();
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -80,10 +78,11 @@ export default {
           },
           body: JSON.stringify({
             model: "qwen/qwen3-32b", 
+            max_tokens: 80, // 💡 長文を返さないように強制ブレーキ（約100文字以内）
             messages: [
               {
                 role: "system",
-                content: "あなたはユーザーの家族です。チャットアプリ風に短くテンポよく返すこと。"
+                content: "あなたはユーザーの家族です。チャットアプリ風に、20文字前後の1文で、短くテンポよく返すこと。"
               },
               { role: "user", content: userMessage }
             ]
@@ -98,9 +97,11 @@ export default {
 
         const groqData = await groqResponse.json();
         const reply = groqData.choices[0].message.content;
+        console.log(`【2. AI思考完了】所要時間: ${Date.now() - startLLM}ms | AIの返答: "${reply}" (文字数: ${reply.length})`);
 
 
-        // --- ③ Cartesiaでテキストを「音声」に変換 ---
+        // 🔊 Cartesia (音声合成) 開始
+        const startTTS = Date.now();
         const cartesiaResponse = await fetch("https://api.cartesia.ai/tts/bytes", {
           method: "POST",
           headers: {
@@ -130,16 +131,12 @@ export default {
           return new Response(JSON.stringify({ user_text: userMessage, reply }), { headers: { "Content-Type": "application/json" } });
         }
 
-        if (!cartesiaResponse.ok) {
-          const errText = await cartesiaResponse.text();
-          console.error("Cartesiaエラー詳細:", errText);
-          return new Response(JSON.stringify({ user_text: userMessage, reply }), { headers: { "Content-Type": "application/json" } });
-        }
-
         const audioBuffer = await cartesiaResponse.arrayBuffer();
         const audioBase64 = arrayBufferToBase64(audioBuffer);
+        console.log(`【3. 音声合成完了】所要時間: ${Date.now() - startTTS}ms`);
 
-        // --- ④ データをセットにして返す ---
+        console.log(`=== 【全処理完了】トータル時間: ${Date.now() - startTotal}ms ===`);
+
         return new Response(JSON.stringify({ 
           user_text: userMessage, 
           reply: reply, 
