@@ -71,6 +71,15 @@
                 } else {
                     chat.innerHTML += '<div class="msg bot" style="color:red;">エラーが発生しました</div>';
                 }
+
+// 💡 2. 【ここを追加！】音声データが入っていたら、ブラウザで即座に再生する
+if (data.audio) {
+  const audioUrl = `data:audio/wav;base64,${data.audio}`;
+  const audio = new Audio(audioUrl);
+  audio.play().catch(err => console.error("音声再生に失敗:", err));
+}
+
+                
             } catch (e) {
                 chat.innerHTML += '<div class="msg bot" style="color:red;">通信エラーが発生しました</div>';
             }
