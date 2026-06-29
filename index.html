@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>家族チャットボット (ハンズフリーiPhone対応)</title>
+  <title>家族チャットボット (iOS Chrome完全対応)</title>
   <style>
     * {
       box-sizing: border-box;
@@ -118,6 +118,9 @@
     const sendButton = document.getElementById('send-button');
     const micButton = document.getElementById('mic-button');
 
+    // 💡 修正①：常に使い回す固定の音声プレイヤー（グローバル）を用意
+    const aiPlayer = new Audio(); 
+
     let mediaRecorder = null;
     let audioChunks = [];
     
@@ -145,6 +148,9 @@
 
     // マイクボタンを押したときの処理
     micButton.addEventListener('click', async () => {
+      // 💡 修正②：【最重要】ユーザーがボタンを押した「この瞬間」にプレイヤーを一瞬再生してiOSのロックを解除！
+      aiPlayer.play().then(() => { aiPlayer.pause(); }).catch(e => console.log("Audio Unlocked"));
+
       if (!isAutoMode) {
         isAutoMode = true;
         micButton.classList.add('recording');
@@ -162,10 +168,8 @@
     async function startAutoConversation() {
       audioChunks = [];
       try {
-        // 💡 修正①：iPhone対策として、毎回新鮮なマイクストリームを取得する
         audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
-        // 音声をリアルタイム分析するWeb Audio API（毎回新しく生成）
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(audioStream);
@@ -186,7 +190,7 @@
         mediaRecorder.onstop = async () => {
           const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
           
-          // 💡 修正②：【最重要】AIが喋る前に、開いているマイクとオーディオ機能を完全に閉じてスピーカーを解放する
+          // AIが喋る前に、マイクとオーディオ機能を完全に閉じてスピーカーを解放
           if (audioStream) {
             audioStream.getTracks().forEach(track => track.stop());
             audioStream = null;
@@ -234,15 +238,15 @@
       if (average > THRESHOLD) {
         if (!hasSpoken) {
           hasSpoken = true;
-          micButton.textContent = "🔴"; // 喋り中
+          micButton.textContent = "🔴"; 
         }
         silenceStart = Date.now(); 
       } else {
         if (hasSpoken && (Date.now() - silenceStart > SILENCE_DURATION)) {
           hasSpoken = false;
-          micButton.textContent = "⏳"; // 考え中
+          micButton.textContent = "⏳"; 
           if (mediaRecorder && mediaRecorder.state === "recording") {
-            mediaRecorder.stop(); // 💡 これを呼ぶと自動的にマイクがオフになり送信されます
+            mediaRecorder.stop(); 
             return; 
           }
         }
@@ -259,7 +263,6 @@
       if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
       }
-      // マイクが開いていたら確実に止める
       if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
@@ -286,19 +289,21 @@
 
         // 音声再生
         if (data.audio) {
-          const audioUrl = `data:audio/wav;base64,${data.audio}`;
-          const audio = new Audio(audioUrl);
+          // 💡 修正③：毎回新しいプレイヤーを作らず、事前にアンロック済みの固定プレイヤー（aiPlayer）に音声を流し込む
+          aiPlayer.src = `data:audio/wav;base64,${data.audio}`;
           
-          if (isAutoMode) micButton.textContent = "🔊"; // AIお喋り中
+          if (isAutoMode) micButton.textContent = "🔊"; 
 
-          audio.play().catch(err => console.error("自動再生ブロック:", err));
+          aiPlayer.play().catch(err => {
+            console.error("再生ブロックされました:", err);
+          });
           
           // AIが喋り終わったら自動で次の聞き取りを再開
-          audio.onended = () => {
+          aiPlayer.onended = () => {
             if (isAutoMode) {
               micButton.textContent = "🎙️";
               setTimeout(() => {
-                if (isAutoMode) startAutoConversation(); // 💡 ここでマイクが新しくONになります
+                if (isAutoMode) startAutoConversation(); 
               }, 400);
             }
           };
@@ -317,6 +322,9 @@
 
     // 従来のテキスト送信処理
     async function sendMessage() {
+      // テキスト送信時も一応アンロックを試みる
+      aiPlayer.play().then(() => { aiPlayer.pause(); }).catch(() => {});
+
       const text = messageInput.value.trim();
       if (!text) return;
 
@@ -338,9 +346,8 @@
         addMessage(data.reply, false);
 
         if (data.audio) {
-          const audioUrl = `data:audio/wav;base64,${data.audio}`;
-          const audio = new Audio(audioUrl);
-          audio.play().catch(err => console.error("自動再生ブロック:", err));
+          aiPlayer.src = `data:audio/wav;base64,${data.audio}`;
+          aiPlayer.play().catch(err => console.error("再生エラー:", err));
         }
 
       } catch (error) {
