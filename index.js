@@ -21,7 +21,6 @@ export default {
     }
 
     if (request.method === "POST") {
-      // ⏱️ 全体の計測開始
       const startTotal = Date.now();
       try {
         let userMessage = "";
@@ -35,7 +34,7 @@ export default {
             return new Response(JSON.stringify({ error: "音声ファイルが見つかりません" }), { status: 400 });
           }
 
-          // 🎙️ Whisper (文字起こし) 開始
+          // 🎙️ Whisper (文字起こし)
           const startWhisper = Date.now();
           const whisperFormData = new FormData();
           whisperFormData.append("file", audioFile, "audio.webm");
@@ -68,7 +67,7 @@ export default {
         }
 
 
-        // 🧠 Groq (Qwen3-32B) でお返事生成 開始
+        // 🧠 Groq (Qwen3-32B) でお返事生成
         const startLLM = Date.now();
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
@@ -78,11 +77,11 @@ export default {
           },
           body: JSON.stringify({
             model: "qwen/qwen3-32b", 
-            max_tokens: 80, // 💡 長文を返さないように強制ブレーキ（約100文字以内）
+            max_tokens: 300, // 💡 思考を出し切らせてから本番のセリフを出させるために広げます
             messages: [
               {
                 role: "system",
-                content: "あなたはユーザーの家族です。チャットアプリ風に、20文字前後の1文で、短くテンポよく返すこと。"
+                content: "あなたはユーザーの家族です。チャットアプリ風に、20文字前後の1文で、短くテンポよく返すこと。思考プロセス(<think>)を出力した後は、必ずユーザーへの短い返答を書いて終了してください。"
               },
               { role: "user", content: userMessage }
             ]
@@ -96,11 +95,22 @@ export default {
         }
 
         const groqData = await groqResponse.json();
-        const reply = groqData.choices[0].message.content;
-        console.log(`【2. AI思考完了】所要時間: ${Date.now() - startLLM}ms | AIの返答: "${reply}" (文字数: ${reply.length})`);
+        let reply = groqData.choices[0].message.content;
+
+        // 💡 【超重要】AIの独り言（<think>〜</think>）をきれいに削ぎ落とす
+        reply = reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+        // 万が一、閉じタグを忘れて途中で切れていた場合のセーフティ
+        reply = reply.replace(/<think>[\s\S]*/g, "").trim();
+
+        // もし空っぽになってしまった場合のフォールバック
+        if (!reply) {
+          reply = "どうしたのー？";
+        }
+
+        console.log(`【2. AI思考完了】所要時間: ${Date.now() - startLLM}ms | 実際のセリフ: "${reply}" (文字数: ${reply.length})`);
 
 
-        // 🔊 Cartesia (音声合成) 開始
+        // 🔊 Cartesia (音声合成)
         const startTTS = Date.now();
         const cartesiaResponse = await fetch("https://api.cartesia.ai/tts/bytes", {
           method: "POST",
@@ -111,7 +121,7 @@ export default {
           },
           body: JSON.stringify({
             model_id: "sonic-latest",
-            transcript: reply,
+            transcript: reply, // 💡 削ぎ落とされた綺麗なセリフだけが渡ります
             voice: {
               mode: "id",
               id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" 
