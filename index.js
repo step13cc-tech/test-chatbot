@@ -54,7 +54,7 @@ export default {
             transcript: reply,
             voice: {
               mode: "id",
-              id: "a0e998ae-05cd-40a1-ad14-ca0ae87b1ef7" // ※ご自身のボイスIDが入っているかご確認ください
+              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // ※ご自身のボイスIDが入っているかご確認ください
             },
             output_format: {
               container: "wav",
