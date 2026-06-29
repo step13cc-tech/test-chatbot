@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>家族チャットボット</title>
+  <title>家族チャットボット (音声対応)</title>
   <style>
     * {
       box-sizing: border-box;
@@ -12,7 +12,7 @@
     }
     body {
       font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
-      background-color: #7494c0; /* 親しみやすいチャット背景色 */
+      background-color: #7494c0;
       display: flex;
       flex-direction: column;
       height: 100vh;
@@ -49,8 +49,9 @@
       background-color: #fff;
       padding: 10px;
       display: flex;
-      gap: 10px;
+      gap: 8px;
       border-top: 1px solid #ddd;
+      align-items: center;
     }
     #message-input {
       flex: 1;
@@ -60,112 +61,209 @@
       font-size: 16px;
       outline: none;
     }
-    #send-button {
-      background-color: #5c78a1;
-      color: #fff;
+    .btn {
       border: none;
-      padding: 0 20px;
+      height: 40px;
       border-radius: 20px;
       font-size: 15px;
       font-weight: bold;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
     }
-    #send-button:disabled {
-      background-color: #ccc;
+    #mic-button {
+      background-color: #f0f0f0;
+      width: 40px;
+      font-size: 18px;
+    }
+    #mic-button.recording {
+      background-color: #ff4d4d;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+    #send-button {
+      background-color: #5c78a1;
+      color: #fff;
+      padding: 0 15px;
+    }
+    .btn:disabled, #message-input:disabled {
+      background-color: #e0e0e0;
+      color: #aaa;
       cursor: not-allowed;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
     }
   </style>
 </head>
 <body>
 
-  <!-- メッセージ表示エリア -->
   <div id="chat-container">
     <div class="message ai-message">おかえり！今日もお疲れ様。</div>
   </div>
 
-  <!-- 下部入力エリア -->
   <div id="input-container">
-    <input type="text" id="message-input" placeholder="メッセージを入力..." autocomplete="off">
-    <button id="send-button">送信</button>
+    <button id="mic-button" class="btn" title="声で話す">🎙️</button>
+    <input type="text" id="message-input" placeholder="メッセージを入力、またはマイク..." autocomplete="off">
+    <button id="send-button" class="btn">送信</button>
   </div>
 
   <script>
     const chatContainer = document.getElementById('chat-container');
     const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('send-button');
+    const micButton = document.getElementById('mic-button');
 
-    // 画面に吹出しを追加する処理
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    // 画面にメッセージを追加
     function addMessage(text, isUser) {
       const messageDiv = document.createElement('div');
       messageDiv.classList.add('message');
       messageDiv.classList.add(isUser ? 'user-message' : 'ai-message');
       messageDiv.textContent = text;
       chatContainer.appendChild(messageDiv);
-      
-      // 自動で一番下までスクロール
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
-    // メッセージを送信するメイン処理
+    // 画面の入力全般を一括ロック・解除する
+    function setControlsDisabled(disabled) {
+      messageInput.disabled = disabled;
+      sendButton.disabled = disabled;
+      micButton.disabled = disabled;
+    }
+
+    // --- 【新機能】音声録音のコントロール処理 ---
+    micButton.addEventListener('click', async () => {
+      if (!isRecording) {
+        // 🎙️ 録音開始
+        audioChunks = [];
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          
+          // ブラウザごとの互換性を考慮した録音設定
+          const options = MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : {};
+          mediaRecorder = new MediaRecorder(stream, options);
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) audioChunks.push(event.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+            stream.getTracks().forEach(track => track.stop()); // マイクをオフにする
+            
+            // 音声データをWorkersに送信
+            await sendAudioToServer(audioBlob);
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          micButton.classList.add('recording');
+          messageInput.placeholder = "お話し中... もう一度ボタンを押して送信";
+          messageInput.disabled = true;
+          sendButton.disabled = true;
+
+        } catch (err) {
+          console.error("マイクの許可が得られませんでした:", err);
+          alert("マイクの使用を許可してください。");
+        }
+      } else {
+        // 🛑 録音停止（自動的に送信処理へ移る）
+        mediaRecorder.stop();
+        isRecording = false;
+        micButton.classList.remove('recording');
+        messageInput.placeholder = "送信中...";
+      }
+    });
+
+    // 🎙️ 音声データをサーバーへPOST送信する関数
+    async function sendAudioToServer(blob) {
+      setControlsDisabled(true);
+
+      const formData = new FormData();
+      formData.append('file', blob);
+
+      try {
+        const response = await fetch("", {
+          method: "POST",
+          body: formData // 音声ファイルをFormData形式で送信
+        });
+
+        if (!response.ok) throw new Error('サーバー通信に失敗しました');
+
+        const data = await response.json();
+
+        // 💡 Whisperが聞き取った「あなたの言葉」を画面に出す
+        if (data.user_text) {
+          addMessage(data.user_text, true);
+        }
+
+        // AIからの返答テキストを表示
+        addMessage(data.reply, false);
+
+        // 音声再生
+        if (data.audio) {
+          const audioUrl = `data:audio/wav;base64,${data.audio}`;
+          const audio = new Audio(audioUrl);
+          audio.play().catch(err => console.error("自動再生ブロック:", err));
+        }
+
+      } catch (error) {
+        console.error(error);
+        addMessage("ごめんね、うまく聞き取れなかったか、お返事できなかったよ…", false);
+      } finally {
+        setControlsDisabled(false);
+        messageInput.placeholder = "メッセージを入力、またはマイク...";
+        messageInput.focus();
+      }
+    }
+
+    // --- 従来のテキスト送信処理 ---
     async function sendMessage() {
       const text = messageInput.value.trim();
       if (!text) return;
 
-      // 連打・誤入力防止のために一時的に無効化
       messageInput.value = '';
-      messageInput.disabled = true;
-      sendButton.disabled = true;
-
-      // 自分のメッセージを画面に表示
+      setControlsDisabled(true);
       addMessage(text, true);
 
       try {
-        // 自身のWorkersサーバー（POST）へデータを送信
         const response = await fetch("", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ message: text }) // 家族追加前のシンプルなデータ構造
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text })
         });
 
-        if (!response.ok) {
-          throw new Error('サーバー通信に失敗しました');
-        }
+        if (!response.ok) throw new Error('サーバー通信に失敗しました');
 
         const data = await response.json();
-
-        // AIからの返答テキストを画面に表示
         addMessage(data.reply, false);
 
-        // 💡 【音声再生処理】音声データ（Base64）が含まれていれば再生
         if (data.audio) {
           const audioUrl = `data:audio/wav;base64,${data.audio}`;
           const audio = new Audio(audioUrl);
-          audio.play().catch(err => {
-            console.error("ブラウザによる自動再生ブロック、または音声エラー:", err);
-          });
+          audio.play().catch(err => console.error("自動再生ブロック:", err));
         }
 
       } catch (error) {
         console.error(error);
         addMessage("ごめんね、うまくお返事できなかったよ…", false);
       } finally {
-        // 入力欄とボタンを再有効化
-        messageInput.disabled = false;
-        sendButton.disabled = false;
+        setControlsDisabled(false);
         messageInput.focus();
       }
     }
 
-    // 送信ボタンが押された時の処理
     sendButton.addEventListener('click', sendMessage);
-
-    // 入力欄でEnterキーが押された時の処理
     messageInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        sendMessage();
-      }
+      if (e.key === 'Enter') sendMessage();
     });
   </script>
 </body>
