@@ -6,3 +6,5 @@ compatibility_date = "2026-06-28"
 [[rules]]
 globs = ["**/*.html"]
 type = "Text"
+[ai]
+binding = "AI"
