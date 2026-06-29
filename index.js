@@ -45,20 +45,20 @@ export default {
         const cartesiaResponse = await fetch("https://api.cartesia.ai/tts/bytes", {
           method: "POST",
           headers: {
-            "X-API-Key": env.CARTESIA_API_KEY, // 💡 修正①：Bearerから元の「X-API-Key」の書き方に戻しました
+            "X-API-Key": env.CARTESIA_API_KEY,
             "Cartesia-Version": "2024-06-10",
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model_id: "sonic",
+            model_id: "sonic-latest", // 💡 修正①：引退した「sonic」から最新の「sonic-latest」に変更
             transcript: reply,
             voice: {
               mode: "id",
-              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // ※ご自身のボイスIDが入っているかご確認ください
+              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // 💡 修正②：新しいボイスIDを挿入しました
             },
             output_format: {
               container: "wav",
-              encoding: "pcm_s16le", // 💡 修正②：ブラウザが最も再生しやすい「16bit (s16le)」に変更しました
+              encoding: "pcm_s16le",
               sample_rate: 44100
             },
             language: "ja"
@@ -68,7 +68,7 @@ export default {
         // エラーが起きた場合はログに出力
         if (!cartesiaResponse.ok) {
           const errText = await cartesiaResponse.text();
-          console.error("Cartesiaエラー詳細:", errText); // 👈 失敗時、ここにエラー内容が出ます
+          console.error("Cartesiaエラー詳細:", errText);
           return new Response(JSON.stringify({ reply }), { headers: { "Content-Type": "application/json" } });
         }
 
