@@ -37,7 +37,7 @@ export default {
             return new Response(JSON.stringify({ error: "音声ファイルが見つかりません" }), { status: 400 });
           }
 
-          // 🎙️ Whisper (文字起こし) は引き続きGroqで高速処理
+          // 🎙️ Whisper (文字起こし)
           const whisperFormData = new FormData();
           whisperFormData.append("file", audioFile, "audio.webm");
           whisperFormData.append("model", "whisper-large-v3-turbo"); 
@@ -70,24 +70,34 @@ export default {
         }
 
 
-        // --- ② 【頭脳変更】Cloudflare内蔵の Workers AI (Qwen) でセリフを生成 ---
-        // 💡 env.AI.run を使い、Cloudflareが提供するQwenモデルを直接呼び出します
-        const aiResponse = await env.AI.run('@cf/qwen/qwen3-30b-a3b-fp8', {
-          messages: [
-            {
-              role: "system",
-              content: "あなたはユーザーの家族です。チャットアプリ風に短くテンポよく返すこと。"
-            },
-            { role: "user", content: userMessage }
-          ]
+        // --- ② 【爆速化】Groqの超高速Qwenモデル（32B）でお返事を生成 ---
+        // 💡 既存の GROQ_API_KEY を使い、文章生成もGroqに任せることで速度を10倍以上にします
+        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.GROQ_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "qwen-2.5-32b",
+            messages: [
+              {
+                role: "system",
+                content: "あなたはユーザーの家族です。チャットアプリ風に短くテンポよく返すこと。"
+              },
+              { role: "user", content: userMessage }
+            ]
+          })
         });
 
-        // Workers AIの返答テキストは「response」というプロパティに入っています
-        const reply = aiResponse.response;
-
-        if (!reply) {
-          throw new Error("Cloudflare Workers AI からの返答が空でした");
+        if (!groqResponse.ok) {
+          const groqErr = await groqResponse.text();
+          console.error("Groq LLMエラー:", groqErr);
+          throw new Error("お返事を考えるのに失敗しちゃった");
         }
+
+        const groqData = await groqResponse.json();
+        const reply = groqData.choices[0].message.content;
 
 
         // --- ③ Cartesiaでテキストを「音声」に変換 ---
