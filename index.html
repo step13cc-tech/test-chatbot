@@ -118,7 +118,6 @@
     const sendButton = document.getElementById('send-button');
     const micButton = document.getElementById('mic-button');
 
-    // 💡 修正①：常に使い回す固定の音声プレイヤー（グローバル）を用意
     const aiPlayer = new Audio(); 
 
     let mediaRecorder = null;
@@ -146,9 +145,7 @@
       sendButton.disabled = disabled;
     }
 
-    // マイクボタンを押したときの処理
     micButton.addEventListener('click', async () => {
-      // 💡 修正②：【最重要】ユーザーがボタンを押した「この瞬間」にプレイヤーを一瞬再生してiOSのロックを解除！
       aiPlayer.play().then(() => { aiPlayer.pause(); }).catch(e => console.log("Audio Unlocked"));
 
       if (!isAutoMode) {
@@ -164,7 +161,6 @@
       }
     });
 
-    // 🎙️ 録音と音量監視を開始するメイン関数
     async function startAutoConversation() {
       audioChunks = [];
       try {
@@ -180,7 +176,11 @@
           await audioContext.resume();
         }
 
-        const options = MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : {};
+        // 💡 【高速化】音質を文字起こしに最適な32kbpsに制限し、アップロードサイズを大幅削減
+        const options = MediaRecorder.isTypeSupported('audio/webm') 
+          ? { mimeType: 'audio/webm', audioBitsPerSecond: 32000 } 
+          : { audioBitsPerSecond: 32000 };
+        
         mediaRecorder = new MediaRecorder(audioStream, options);
 
         mediaRecorder.ondataavailable = (event) => {
@@ -190,7 +190,6 @@
         mediaRecorder.onstop = async () => {
           const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
           
-          // AIが喋る前に、マイクとオーディオ機能を完全に閉じてスピーカーを解放
           if (audioStream) {
             audioStream.getTracks().forEach(track => track.stop());
             audioStream = null;
@@ -219,7 +218,6 @@
       }
     }
 
-    // 🧠 喋り終わり（無音）をリアルタイムに自動検知するループ
     function checkSilence() {
       if (!isAutoMode || !analyser) return;
 
@@ -233,7 +231,8 @@
       let average = total / array.length;
 
       const THRESHOLD = 12; 
-      const SILENCE_DURATION = 1500; // 1.5秒
+      // 💡 【高速化】無音の待ち時間を 1500ms(1.5秒) ➔ 700ms(0.7秒) に短縮！
+      const SILENCE_DURATION = 700; 
 
       if (average > THRESHOLD) {
         if (!hasSpoken) {
@@ -255,7 +254,6 @@
       animationFrameId = requestAnimationFrame(checkSilence);
     }
 
-    // 自動会話モードをストップさせる関数
     function stopAutoConversation() {
       isAutoMode = false;
       hasSpoken = false;
@@ -273,7 +271,6 @@
       setControlsDisabledForText(false);
     }
 
-    // 🚀 音声データをサーバーへ送信＆返答をループさせる関数
     async function sendAudioToServer(blob) {
       const formData = new FormData();
       formData.append('file', blob);
@@ -287,9 +284,7 @@
         if (data.user_text) addMessage(data.user_text, true);
         addMessage(data.reply, false);
 
-        // 音声再生
         if (data.audio) {
-          // 💡 修正③：毎回新しいプレイヤーを作らず、事前にアンロック済みの固定プレイヤー（aiPlayer）に音声を流し込む
           aiPlayer.src = `data:audio/wav;base64,${data.audio}`;
           
           if (isAutoMode) micButton.textContent = "🔊"; 
@@ -298,18 +293,17 @@
             console.error("再生ブロックされました:", err);
           });
           
-          // AIが喋り終わったら自動で次の聞き取りを再開
           aiPlayer.onended = () => {
             if (isAutoMode) {
               micButton.textContent = "🎙️";
               setTimeout(() => {
                 if (isAutoMode) startAutoConversation(); 
-              }, 400);
+              }, 300); // 💡 次の聞き取り開始のディレイも少し詰めました
             }
           };
         } else {
           if (isAutoMode) {
-            setTimeout(() => { if (isAutoMode) startAutoConversation(); }, 1000);
+            setTimeout(() => { if (isAutoMode) startAutoConversation(); }, 800);
           }
         }
 
@@ -320,9 +314,7 @@
       }
     }
 
-    // 従来のテキスト送信処理
     async function sendMessage() {
-      // テキスト送信時も一応アンロックを試みる
       aiPlayer.play().then(() => { aiPlayer.pause(); }).catch(() => {});
 
       const text = messageInput.value.trim();
