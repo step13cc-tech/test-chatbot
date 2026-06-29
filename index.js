@@ -1,4 +1,4 @@
-//import htmlContent from "./index.html";
+import htmlContent from "./index.html";
 
 export default {
   async fetch(request, env) {
