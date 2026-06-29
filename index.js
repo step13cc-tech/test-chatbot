@@ -28,9 +28,8 @@ export default {
         let userMessage = "";
         const contentType = request.headers.get("content-type") || "";
 
-        // --- ① 【新機能】送られてきたデータが「音声ファイル」か「文字」かを判別 ---
+        // --- ① 送られてきたデータが「音声ファイル」か「文字」かを判別 ---
         if (contentType.includes("multipart/form-data")) {
-          // マイクから音声データが届いた場合
           const formData = await request.formData();
           const audioFile = formData.get("file");
 
@@ -38,10 +37,10 @@ export default {
             return new Response(JSON.stringify({ error: "音声ファイルが見つかりません" }), { status: 400 });
           }
 
-          // 🎙️ GroqのWhisper APIに音声ファイルを丸投げして文字起こし
+          // 🎙️ Whisper (文字起こし) は引き続きGroqで高速処理
           const whisperFormData = new FormData();
           whisperFormData.append("file", audioFile, "audio.webm");
-          whisperFormData.append("model", "whisper-large-v3-turbo"); // 高速・高精度な最新モデル
+          whisperFormData.append("model", "whisper-large-v3-turbo"); 
           whisperFormData.append("language", "ja");
 
           const whisperResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
@@ -59,46 +58,36 @@ export default {
           }
 
           const whisperData = await whisperResponse.json();
-          userMessage = whisperData.text; // 聞き取った言葉をテキスト化！
+          userMessage = whisperData.text; 
 
         } else {
-          // 従来のキーボード入力（JSON）の場合
           const body = await request.json();
           userMessage = body.message;
         }
 
-        // もし空文字ならここで終了
         if (!userMessage || !userMessage.trim()) {
           return new Response(JSON.stringify({ error: "メッセージが空です" }), { status: 400 });
         }
 
 
-        // --- ② Groq（Llama）でテキスト（セリフ）を生成 ---
-        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.GROQ_API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            messages: [
-              {
-                role: "system",
-                content: "あなたはユーザーの家族です。チャットアプリ風に短くテンポよく返すこと。"
-              },
-              { role: "user", content: userMessage }
-            ]
-          })
+        // --- ② 【頭脳変更】Cloudflare内蔵の Workers AI (Qwen) でセリフを生成 ---
+        // 💡 env.AI.run を使い、Cloudflareが提供するQwenモデルを直接呼び出します
+        const aiResponse = await env.AI.run('@cf/qwen/qwen1.5-14b-chat-awq', {
+          messages: [
+            {
+              role: "system",
+              content: "あなたはユーザーの家族です。チャットアプリ風に短くテンポよく返すこと。"
+            },
+            { role: "user", content: userMessage }
+          ]
         });
 
-        const groqData = await groqResponse.json();
-        if (!groqResponse.ok) {
-          console.error("Groqエラー:", JSON.stringify(groqData));
-          return new Response(JSON.stringify({ error: "Groqエラー" }), { status: 500 });
+        // Workers AIの返答テキストは「response」というプロパティに入っています
+        const reply = aiResponse.response;
+
+        if (!reply) {
+          throw new Error("Cloudflare Workers AI からの返答が空でした");
         }
-        
-        const reply = groqData.choices[0].message.content;
 
 
         // --- ③ Cartesiaでテキストを「音声」に変換 ---
@@ -114,7 +103,7 @@ export default {
             transcript: reply,
             voice: {
               mode: "id",
-              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" // 指定されたボイスIDを固定
+              id: "0c9bd012-bcdb-48c3-ab40-0a898f970a7e" 
             },
             output_format: {
               container: "wav",
@@ -128,17 +117,15 @@ export default {
         if (!cartesiaResponse.ok) {
           const errText = await cartesiaResponse.text();
           console.error("Cartesiaエラー詳細:", errText);
-          // 音声が失敗しても、文字だけは画面に返す優しさ設計
           return new Response(JSON.stringify({ user_text: userMessage, reply }), { headers: { "Content-Type": "application/json" } });
         }
 
-        // 音声のバイナリデータを取得し、安全にBase64に変換
         const audioBuffer = await cartesiaResponse.arrayBuffer();
         const audioBase64 = arrayBufferToBase64(audioBuffer);
 
-        // --- ④ テキストと音声、そして「聞き取ったあなたの言葉（user_text）」をセットにして返す ---
+        // --- ④ データをセットにして返す ---
         return new Response(JSON.stringify({ 
-          user_text: userMessage, // 💡 追加：音声入力のときに画面に自分の喋った文字を出す用
+          user_text: userMessage, 
           reply: reply, 
           audio: audioBase64 
         }), {
