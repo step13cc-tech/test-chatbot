@@ -70,7 +70,7 @@ export default {
         const reply = groqData.choices[0].message.content;
 
         // --- ② Cartesiaでテキストを「音声」に変換 ---
-        const cartesiaResponse = await fetch("https://api.cartesia.ai/v1/tts/bytes", {
+        const cartesiaResponse = await fetch("https://api.cartesia.ai/tts/bytes", {
           method: "POST",
           headers: {
             "X-API-Key": env.CARTESIA_API_KEY,
