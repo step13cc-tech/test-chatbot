@@ -3,20 +3,18 @@ import htmlContent from "./index.html";
 export default {
   async fetch(request, env) {
     // 1. チャット画面（HTML）を表示する処理 (GET)
-    // 💡 これがあるから、ワーカーズのURLを開くだけで画面が表示されます！
     if (request.method === "GET") {
       return new Response(htmlContent, {
         headers: { "Content-Type": "text/html;charset=UTF-8" },
       });
     }
 
-    // 2. Groq APIと通信する処理 (POST)
+    // 2. AIと通信して、声も作る処理 (POST)
     if (request.method === "POST") {
       try {
-        // 💡 画面から「メッセージ」と「選ばれたメンバー」を同時に受け取る
         const { message, member } = await request.json();
 
-        // 💡 家族全員のキャラクター設定リスト（セリフ帳）
+        // 💡 家族全員のキャラクター設定（テキスト用）
         const familyPrompts = {
           grandfather: "あなたは「おじいちゃん」です。好々爺として「〜じゃよ」「〜かのう」と優しく話し、一問一答なので『最近の若いもんはどうじゃ？』など自ら新しい話題を振ってください。",
           grandmother: "あなたは「おばあちゃん」です。おっとり優しく「〜だねぇ」「お茶でも飲みなさい」と話し、一問一答なので『今日はお天気だねぇ』など日常の話題を振ってください。",
@@ -31,9 +29,26 @@ export default {
           baby: "あなたは「赤子（赤ちゃん）」です。人間の言葉はまだ喋れません。「ばぶー！」「あうー」「ばぶばぶ（お腹すいたのかな？）」など、赤ちゃんならではの喃語（なんご）だけで、テンポよく返答してください。"
         };
 
-        // 💡 選ばれたメンバーのプロンプトを呼び出す（いなければ自動的にお母さんにする）
-        const selectedSystemPrompt = familyPrompts[member] || familyPrompts['mother'];
+        // 💡 家族ごとの「声（Cartesia Voice ID）」の設定リスト
+        // ※Cartesiaの「Voice Library」から日本語（Multilingual）対応の好きな声のIDをコピーして、ここに当てはめてください
+        const familyVoices = {
+          grandfather: "おじいちゃんの声のID",
+          grandmother: "おばあちゃんの声のID",
+          father: "お父さんの声のID",
+          mother: "a0e998ae-05cd-40a1-ad14-ca0ae87b1ef7", // 例: 日本語が喋れる女性の声
+          brother: "兄の声のID",
+          sister: "姉の声のID",
+          younger_brother: "弟の声のID",
+          younger_sister: "妹の声のID",
+          son: "息子の声のID",
+          daughter: "娘の声のID",
+          baby: "赤ちゃんの声のID"
+        };
 
+        const selectedSystemPrompt = familyPrompts[member] || familyPrompts['mother'];
+        const selectedVoiceId = familyVoices[member] || familyVoices['mother'];
+
+        // --- ① Groqでテキスト（セリフ）を生成 ---
         const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -43,39 +58,58 @@ export default {
           body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [
-              {
-                role: "system",
-                content: selectedSystemPrompt // 💡 ここを選ばれた家族の性格に自動差し替え！
-              },
+              { role: "system", content: selectedSystemPrompt },
               { role: "user", content: message }
             ]
           })
         });
 
-        // 【ログ強化】Groqのステータスコードを記録
-        console.log("Groq応答ステータス:", groqResponse.status);
-
-        const data = await groqResponse.json();
+        const groqData = await groqResponse.json();
+        if (!groqResponse.ok) return new Response(JSON.stringify({ error: "Groqエラー" }), { status: 500 });
         
-        // 【ログ強化】もしGroq側でエラーが起きていたら、その理由を詳しくログに残す
-        if (!groqResponse.ok) {
-          console.error("Groqエラー内容:", JSON.stringify(data));
-          return new Response(JSON.stringify({ error: "Groq API側でエラーが発生しました" }), { status: groqResponse.status });
+        const reply = groqData.choices[0].message.content;
+
+        // --- ② Cartesiaでテキストを「音声」に変換 ---
+        const cartesiaResponse = await fetch("https://api.cartesia.ai/v1/tts/bytes", {
+          method: "POST",
+          headers: {
+            "X-API-Key": env.CARTESIA_API_KEY,
+            "Cartesia-Version": "2024-06-10",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model_id: "sonic-multilingual", // 日本語対応の多言語モデルを指定
+            transcript: reply,             // AIが作ったセリフを喋らせる
+            voice: {
+              mode: "id",
+              id: selectedVoiceId        // 家族に合わせた声のID
+            },
+            output_format: {
+              container: "wav",          // ブラウザで再生しやすいWAV形式
+              sample_rate: 44100
+            }
+          })
+        });
+
+        if (!cartesiaResponse.ok) {
+          const errText = await cartesiaResponse.text();
+          console.error("Cartesiaエラー:", errText);
+          // 音声が失敗してもチャットだけは動くように、音声なしで返す
+          return new Response(JSON.stringify({ reply }), { headers: { "Content-Type": "application/json" } });
         }
 
-        const reply = data.choices[0].message.content;
+        // 音声のバイナリデータを取得し、Base64文字列に変換する
+        const audioBuffer = await cartesiaResponse.arrayBuffer();
+        const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
 
-        return new Response(JSON.stringify({ reply }), {
+        // --- ③ テキストと音声（Base64）をセットにして画面に返す ---
+        return new Response(JSON.stringify({ reply, audio: audioBase64 }), {
           headers: { "Content-Type": "application/json" }
         });
 
       } catch (error) {
-        // 【ログ強化】プログラム自体が失敗した場合の理由を記録
         console.error("Workers内部エラー:", error.message);
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" }
-        });
+        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
       }
     }
   }
